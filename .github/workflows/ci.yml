@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    # Postgres y Redis reales como servicios del runner: los tests e2e corren
+    # contra dependencias de verdad, no mocks. (Más simple que Testcontainers en Node.)
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: chat
+          POSTGRES_PASSWORD: chat
+          POSTGRES_DB: chat_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U chat"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://chat:chat@localhost:5432/chat_test?schema=public
+      REDIS_URL: redis://localhost:6379
+      JWT_SECRET: test-secret-at-least-16-characters-long
+      JWT_EXPIRES_IN: 1d
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npx prisma migrate deploy
+      - run: npm run build
+      - run: npm run test
+      - run: npm run test:e2e

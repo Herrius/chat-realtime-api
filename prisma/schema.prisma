@@ -1,0 +1,15 @@
+// Prisma schema — B3 Chat Realtime API
+// Generador clásico (prisma-client-js) → se importa como `@prisma/client`.
+// Flujo: `prisma migrate dev` en local, `prisma migrate deploy` en prod.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Los modelos se agregan slice por slice:
+//   M1 → User · M2 → Room, Membership · M3 → Message · M5 → ReadReceipt

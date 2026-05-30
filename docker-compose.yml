@@ -1,0 +1,49 @@
+# Stack de desarrollo local: base, cache/pubsub y la app.
+# `docker compose up --build` levanta todo; `docker compose down -v` limpia.
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: chat
+      POSTGRES_PASSWORD: chat
+      POSTGRES_DB: chat
+    ports:
+      - '5432:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U chat']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - '6379:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://chat:chat@db:5432/chat?schema=public
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: dev-secret-change-me-please-32-characters
+      JWT_EXPIRES_IN: 1d
+      CORS_ORIGIN: '*'
+      PORT: 3000
+    ports:
+      - '3000:3000'
+
+volumes:
+  pgdata:
