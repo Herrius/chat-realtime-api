@@ -27,9 +27,10 @@ model User {
   role      Role     @default(USER)
   createdAt DateTime @default(now())
 
-  createdRooms Room[]       @relation("RoomCreator")
+  createdRooms Room[]         @relation("RoomCreator")
   memberships  Membership[]
   messages     Message[]
+  readReceipts ReadReceipt[]
 
   @@map("users")
 }
@@ -42,8 +43,9 @@ model Room {
   createdBy   User     @relation("RoomCreator", fields: [createdById], references: [id])
   createdAt   DateTime @default(now())
 
-  memberships Membership[]
-  messages    Message[]
+  memberships  Membership[]
+  messages     Message[]
+  readReceipts ReadReceipt[]
 
   @@map("rooms")
 }
@@ -75,4 +77,18 @@ model Message {
   // Índice compuesto: el historial se lee por sala ordenado por tiempo (M5).
   @@index([roomId, createdAt])
   @@map("messages")
+}
+
+// Marca hasta dónde leyó cada usuario en cada sala. Uno por (usuario, sala).
+model ReadReceipt {
+  id                String   @id @default(uuid())
+  userId            String
+  roomId            String
+  lastReadMessageId String
+  readAt            DateTime @updatedAt
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  room              Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roomId])
+  @@map("read_receipts")
 }

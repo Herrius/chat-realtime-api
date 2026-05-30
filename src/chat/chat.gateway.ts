@@ -12,7 +12,7 @@ import {
 import { Server } from 'socket.io';
 import { AuthUser, JwtPayload } from '../auth/jwt-payload';
 import { RoomsService } from '../rooms/rooms.service';
-import { ChatService } from './chat.service';
+import { ChatService, ReceiptView } from './chat.service';
 import {
   JoinRoomDto,
   LeaveRoomDto,
@@ -173,6 +173,14 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       username: user.username,
       isTyping,
     });
+  }
+
+  /**
+   * Avisa a la sala que alguien actualizó su marca de lectura. Lo llama el
+   * endpoint REST POST /rooms/:id/read para que el "visto" llegue en vivo.
+   */
+  emitRead(roomId: string, receipt: ReceiptView): void {
+    this.server.to(roomKey(roomId)).emit('read', { roomId, ...receipt });
   }
 
   private async markLeave(
