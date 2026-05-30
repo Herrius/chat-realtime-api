@@ -16,3 +16,6 @@ coverage
 .idea
 .vscode/*
 !.vscode/extensions.json
+
+# smoke scripts temporales
+tmp-*.mjs
