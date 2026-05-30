@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Chat Realtime — Demo</title>
+    <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+    <style>
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; font-family: system-ui, sans-serif; background: #0f1115; color: #e6e8ee;
+        height: 100vh; display: flex; flex-direction: column;
+      }
+      header { padding: 10px 16px; background: #171a21; border-bottom: 1px solid #262b36; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+      header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+      header .muted { color: #8b93a7; font-size: 12px; }
+      .pill { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: #232838; }
+      .ok { color: #5ad19a; } .bad { color: #ff7a85; }
+      main { flex: 1; display: grid; grid-template-columns: 260px 1fr 200px; min-height: 0; }
+      .panel { padding: 12px; overflow-y: auto; border-right: 1px solid #262b36; }
+      .panel:last-child { border-right: none; border-left: 1px solid #262b36; }
+      h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: #8b93a7; margin: 0 0 8px; }
+      input, button, select {
+        font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid #2c3140;
+        background: #11141b; color: #e6e8ee; width: 100%; margin-bottom: 8px;
+      }
+      button { background: #3b82f6; border: none; cursor: pointer; font-weight: 600; }
+      button.ghost { background: #232838; }
+      button:hover { filter: brightness(1.1); }
+      .room { padding: 8px 10px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+      .room:hover { background: #1b2030; }
+      .room.active { background: #233056; }
+      #messages { flex: 1; overflow-y: auto; padding: 12px 16px; display: flex; flex-direction: column; gap: 6px; }
+      .center { display: flex; flex-direction: column; min-height: 0; }
+      .msg { max-width: 75%; padding: 8px 12px; border-radius: 10px; background: #1b2030; }
+      .msg.mine { align-self: flex-end; background: #233056; }
+      .msg .who { font-size: 11px; color: #8b93a7; margin-bottom: 2px; }
+      .composer { display: flex; gap: 8px; padding: 12px; border-top: 1px solid #262b36; }
+      .composer input { margin: 0; }
+      .composer button { width: auto; }
+      .online { font-size: 14px; padding: 4px 0; }
+      .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #5ad19a; margin-right: 6px; }
+      #typing { height: 18px; color: #8b93a7; font-size: 12px; padding: 0 16px; }
+      .hidden { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Chat Realtime</h1>
+      <span id="status" class="pill bad">desconectado</span>
+      <span id="me" class="muted"></span>
+      <span style="flex:1"></span>
+      <input id="base" style="width:240px;margin:0" value="http://localhost:3000" />
+      <button id="logout" class="ghost hidden" style="width:auto">salir</button>
+    </header>
+
+    <!-- Login -->
+    <section id="auth" class="panel" style="max-width:420px;margin:40px auto;border:1px solid #262b36;border-radius:12px">
+      <h2>Entrar</h2>
+      <input id="email" placeholder="email" value="ana@demo.com" />
+      <input id="username" placeholder="username (solo para registrar)" value="ana" />
+      <input id="password" type="password" placeholder="password" value="demo1234" />
+      <button id="loginBtn">Login</button>
+      <button id="registerBtn" class="ghost">Registrarme</button>
+      <p class="muted" style="font-size:12px">Demo seed: ana@demo.com / demo1234 · bob@demo.com / demo1234 · admin@demo.com / admin123</p>
+    </section>
+
+    <!-- App -->
+    <main id="app" class="hidden">
+      <aside class="panel">
+        <h2>Salas</h2>
+        <div id="rooms"></div>
+        <h2 style="margin-top:16px">Nueva sala</h2>
+        <input id="newRoom" placeholder="nombre" />
+        <button id="createRoom" class="ghost">Crear</button>
+      </aside>
+
+      <section class="center">
+        <div id="messages"></div>
+        <div id="typing"></div>
+        <div class="composer">
+          <input id="msg" placeholder="Escribe un mensaje…" autocomplete="off" />
+          <button id="send">Enviar</button>
+        </div>
+      </section>
+
+      <aside class="panel">
+        <h2>En línea</h2>
+        <div id="online"></div>
+      </aside>
+    </main>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const base = () => $('base').value.replace(/\/$/, '');
+      let token = null, me = null, socket = null, currentRoom = null;
+      let typingTimer = null;
+
+      async function api(path, { method = 'GET', body, auth = true } = {}) {
+        const headers = { 'Content-Type': 'application/json' };
+        if (auth && token) headers.Authorization = 'Bearer ' + token;
+        const res = await fetch(base() + path, { method, headers, body: body ? JSON.stringify(body) : undefined });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.message || res.status);
+        return data;
+      }
+
+      async function login(register) {
+        try {
+          const email = $('email').value, password = $('password').value, username = $('username').value;
+          const path = register ? '/v1/auth/register' : '/v1/auth/login';
+          const body = register ? { email, username, password } : { email, password };
+          const r = await api(path, { method: 'POST', body, auth: false });
+          token = r.accessToken; me = r.user;
+          $('me').textContent = `${me.username} · ${me.role}`;
+          $('auth').classList.add('hidden'); $('app').classList.remove('hidden'); $('logout').classList.remove('hidden');
+          connectSocket(); await loadRooms();
+        } catch (e) { alert('Error: ' + e.message); }
+      }
+
+      function connectSocket() {
+        socket = io(base() + '/chat', { auth: { token }, transports: ['websocket'] });
+        socket.on('connect', () => setStatus(true));
+        socket.on('disconnect', () => setStatus(false));
+        socket.on('message', (m) => addMessage(m));
+        socket.on('presence', (p) => { if (p.roomId === currentRoom) refreshOnlineFromEvent(p); });
+        socket.on('typing', (t) => { if (t.roomId === currentRoom) showTyping(t); });
+        socket.on('read', (r) => console.log('read receipt', r));
+        socket.on('error', (e) => console.warn('ws error', e));
+      }
+
+      function setStatus(ok) {
+        const el = $('status');
+        el.textContent = ok ? 'conectado' : 'desconectado';
+        el.className = 'pill ' + (ok ? 'ok' : 'bad');
+      }
+
+      async function loadRooms() {
+        const rooms = await api('/v1/rooms');
+        const box = $('rooms'); box.innerHTML = '';
+        rooms.forEach((r) => {
+          const d = document.createElement('div');
+          d.className = 'room' + (r.id === currentRoom ? ' active' : '');
+          d.textContent = `# ${r.name} (${r.memberCount})`;
+          d.onclick = () => openRoom(r);
+          box.appendChild(d);
+        });
+      }
+
+      async function createRoom() {
+        const name = $('newRoom').value.trim(); if (!name) return;
+        try { const r = await api('/v1/rooms', { method: 'POST', body: { name } }); $('newRoom').value = ''; await loadRooms(); openRoom(r); }
+        catch (e) { alert('Error: ' + e.message); }
+      }
+
+      async function openRoom(room) {
+        // unirse (idempotente) y entrar a la sala WS
+        try { await api(`/v1/rooms/${room.id}/join`, { method: 'POST' }); } catch (e) {}
+        if (currentRoom) socket.emit('leave_room', { roomId: currentRoom });
+        currentRoom = room.id;
+        $('messages').innerHTML = ''; $('typing').textContent = ''; $('online').innerHTML = '';
+        await loadRooms();
+        // historial REST (viene más-nuevos-primero → lo invertimos para mostrar)
+        const hist = await api(`/v1/rooms/${room.id}/messages?limit=50`);
+        hist.items.slice().reverse().forEach(addMessage);
+        // entrar por WS → ack trae el snapshot de presencia
+        socket.timeout(4000).emit('join_room', { roomId: room.id }, (err, ack) => {
+          if (!err && ack?.online) renderOnline(ack.online);
+        });
+      }
+
+      function addMessage(m) {
+        const el = document.createElement('div');
+        el.className = 'msg' + (m.senderId === me.id ? ' mine' : '');
+        el.innerHTML = `<div class="who">${escapeHtml(m.senderUsername)}</div>${escapeHtml(m.body)}`;
+        const box = $('messages'); box.appendChild(el); box.scrollTop = box.scrollHeight;
+        // marcar leído hasta este mensaje
+        if (currentRoom) api(`/v1/rooms/${currentRoom}/read`, { method: 'POST', body: { messageId: m.id } }).catch(() => {});
+      }
+
+      function sendMessage() {
+        const input = $('msg'); const body = input.value.trim();
+        if (!body || !currentRoom) return;
+        socket.emit('send_message', { roomId: currentRoom, body });
+        input.value = ''; socket.emit('typing_stop', { roomId: currentRoom });
+      }
+
+      const onlineUsers = new Map();
+      function renderOnline(list) {
+        onlineUsers.clear(); list.forEach((u) => onlineUsers.set(u.userId, u.username)); paintOnline();
+      }
+      function refreshOnlineFromEvent(p) {
+        if (p.status === 'online') onlineUsers.set(p.userId, p.username);
+        else onlineUsers.delete(p.userId);
+        paintOnline();
+      }
+      function paintOnline() {
+        const box = $('online'); box.innerHTML = '';
+        onlineUsers.forEach((name) => {
+          const d = document.createElement('div'); d.className = 'online';
+          d.innerHTML = `<span class="dot"></span>${escapeHtml(name)}`; box.appendChild(d);
+        });
+      }
+
+      let typingClear = null;
+      function showTyping(t) {
+        if (!t.isTyping) { $('typing').textContent = ''; return; }
+        $('typing').textContent = `${t.username} está escribiendo…`;
+        clearTimeout(typingClear); typingClear = setTimeout(() => ($('typing').textContent = ''), 2500);
+      }
+
+      function onTyping() {
+        if (!currentRoom) return;
+        socket.emit('typing_start', { roomId: currentRoom });
+        clearTimeout(typingTimer);
+        typingTimer = setTimeout(() => socket.emit('typing_stop', { roomId: currentRoom }), 1200);
+      }
+
+      function escapeHtml(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+      function logout() { if (socket) socket.disconnect(); token = null; me = null; currentRoom = null;
+        $('app').classList.add('hidden'); $('auth').classList.remove('hidden'); $('logout').classList.add('hidden'); $('me').textContent = ''; setStatus(false); }
+
+      $('loginBtn').onclick = () => login(false);
+      $('registerBtn').onclick = () => login(true);
+      $('createRoom').onclick = createRoom;
+      $('send').onclick = sendMessage;
+      $('logout').onclick = logout;
+      $('msg').addEventListener('keydown', (e) => { if (e.key === 'Enter') sendMessage(); else onTyping(); });
+    </script>
+  </body>
+</html>
