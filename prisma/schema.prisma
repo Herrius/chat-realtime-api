@@ -27,5 +27,36 @@ model User {
   role      Role     @default(USER)
   createdAt DateTime @default(now())
 
+  createdRooms Room[]       @relation("RoomCreator")
+  memberships  Membership[]
+
   @@map("users")
+}
+
+model Room {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  isPrivate   Boolean  @default(false)
+  createdById String
+  createdBy   User     @relation("RoomCreator", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+
+  memberships Membership[]
+
+  @@map("rooms")
+}
+
+// Relación N:M usuario↔sala, materializada para guardar metadatos (joinedAt) y
+// ser la unidad de autorización (¿este usuario pertenece a esta sala?).
+model Membership {
+  id       String   @id @default(uuid())
+  userId   String
+  roomId   String
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  room     Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  joinedAt DateTime @default(now())
+
+  @@unique([userId, roomId]) // un usuario no se une dos veces a la misma sala
+  @@index([roomId])
+  @@map("memberships")
 }
