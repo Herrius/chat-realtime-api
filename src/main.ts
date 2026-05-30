@@ -3,9 +3,19 @@ import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
+import { RedisIoAdapter } from './chat/redis-io.adapter';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  app.enableShutdownHooks(); // cierra Redis/Prisma limpio al recibir SIGTERM
+
+  // Adapter de Redis para socket.io: habilita el broadcast entre instancias.
+  const redisAdapter = new RedisIoAdapter(
+    app,
+    process.env.REDIS_URL ?? 'redis://localhost:6379',
+  );
+  await redisAdapter.connectToRedis();
+  app.useWebSocketAdapter(redisAdapter);
 
   // Todas las rutas REST bajo /v1 (health queda fuera para chequeos simples).
   app.setGlobalPrefix('v1', { exclude: ['health'] });

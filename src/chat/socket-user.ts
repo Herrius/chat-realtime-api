@@ -1,8 +1,10 @@
 import { Socket } from 'socket.io';
 import { AuthUser } from '../auth/jwt-payload';
 
-/** Socket con el usuario autenticado adjunto tras el handshake. */
-export type AuthedSocket = Socket & { data: { user: AuthUser } };
+/** Socket con el usuario autenticado y las salas de dominio en las que está. */
+export type AuthedSocket = Socket & {
+  data: { user: AuthUser; rooms: Set<string> };
+};
 
 /** Nombre de la room interna de socket.io para una sala del dominio. */
 export function roomKey(roomId: string): string {
