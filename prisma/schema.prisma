@@ -13,3 +13,19 @@ datasource db {
 
 // Los modelos se agregan slice por slice:
 //   M1 → User · M2 → Room, Membership · M3 → Message · M5 → ReadReceipt
+
+enum Role {
+  USER
+  ADMIN
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  username  String
+  password  String // hash bcrypt, nunca el plano
+  role      Role     @default(USER)
+  createdAt DateTime @default(now())
+
+  @@map("users")
+}
